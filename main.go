@@ -32,7 +32,7 @@ var (
 	ntfyPrioComp   string
 	notifyComplete bool
 	progressFormat string
-	pollInt        = 5 * time.Second
+	pollInt        time.Duration
 )
 
 // --- State ---
@@ -71,6 +71,7 @@ func main() {
 
 	notifyComplete = getEnvBool("NOTIFY_COMPLETE", true)
 	progressFormat = getEnv("PROGRESS_FORMAT", "bar") // "bar" or "percent"
+	pollInt = time.Duration(getEnvInt("POLL_INTERVAL", 5)) * time.Second
 
 	// 2. Start Trigger Server
 	http.HandleFunc("/track", handleTrackRequest)
@@ -443,4 +444,16 @@ func getEnvBool(k string, fallback bool) bool {
 		return fallback
 	}
 	return b
+}
+
+func getEnvInt(k string, fallback int) int {
+	v := os.Getenv(k)
+	if v == "" {
+		return fallback
+	}
+	i, err := strconv.Atoi(v)
+	if err != nil {
+		return fallback
+	}
+	return i
 }

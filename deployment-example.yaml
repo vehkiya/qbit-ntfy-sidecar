@@ -62,6 +62,8 @@ spec:
               value: "bar" # or "percent"
             - name: NTFY_PRIORITY_PROGRESS
               value: "2"
+            - name: POLL_INTERVAL
+              value: "5" # seconds
 
           resources:
             requests:
