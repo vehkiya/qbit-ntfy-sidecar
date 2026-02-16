@@ -79,11 +79,6 @@ func main() {
 	log.Printf("Sidecar listening on :%s", port)
 	log.Printf("Config: Host=%s Auth=%v Topic=%s/%s NtfyAuth=%v", qbitHost, qbitUser != "", ntfyServer, ntfyTopic, ntfyUser != "")
 
-	// 1. Config Check
-	// ... (vars init) ...
-	qbitHost = getEnv("QBIT_HOST", "http://localhost:8080")
-	// ...
-
 	// Global Context for shutdown signaling
 	appCtx, appCancel = context.WithCancel(context.Background())
 	defer appCancel()
