@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -16,7 +17,9 @@ func TestDrawProgressBar(t *testing.T) {
 		{0, "[░░░░░░░░░░]"},
 		{50, "[█████░░░░░]"},
 		{100, "[██████████]"},
-		{5, "[█░░░░░░░░░]"}, // Rounds up/down logic check
+		{5, "[█░░░░░░░░░]"},   // Rounds up/down logic check
+		{-10, "[░░░░░░░░░░]"}, // Edge case: underflow
+		{150, "[██████████]"}, // Edge case: overflow
 	}
 
 	for _, tt := range tests {
@@ -47,36 +50,89 @@ func TestFormatDuration(t *testing.T) {
 }
 
 func TestGetTorrentInfo(t *testing.T) {
-	// Mock qBittorrent Server
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.Contains(r.URL.Path, "/api/v2/torrents/info") {
-			w.WriteHeader(200)
-			fmt.Fprintln(w, `[{"hash":"123","name":"Test Torrent","progress":0.5,"eta":60,"dlspeed":1024,"state":"downloading"}]`)
-			return
-		}
-		w.WriteHeader(404)
-	}))
-	defer ts.Close()
-
-	// Override global host
-	oldHost := qbitHost
-	qbitHost = ts.URL
-	defer func() { qbitHost = oldHost }()
-
-	client := ts.Client()
-	torrent, err := getTorrentInfo(client, "123")
-	if err != nil {
-		t.Fatalf("getTorrentInfo failed: %v", err)
+	tests := []struct {
+		name          string
+		handler       func(w http.ResponseWriter, r *http.Request)
+		expectError   bool
+		expectTorrent bool
+		expectedHash  string
+	}{
+		{
+			name: "Success",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(200)
+				fmt.Fprintln(w, `[{"hash":"123","name":"Test Torrent","progress":0.5,"eta":60,"dlspeed":1024,"state":"downloading"}]`)
+			},
+			expectError:   false,
+			expectTorrent: true,
+			expectedHash:  "123",
+		},
+		{
+			name: "Torrent Not Found (Empty Array)",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(200)
+				fmt.Fprintln(w, `[]`)
+			},
+			expectError:   false,
+			expectTorrent: false,
+		},
+		{
+			name: "API Error (500)",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(500)
+				fmt.Fprintln(w, `Internal Server Error`)
+			},
+			expectError:   true,
+			expectTorrent: false,
+		},
+		{
+			name: "Malformed JSON",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(200)
+				fmt.Fprintln(w, `[{"hash":... invalid json ...`)
+			},
+			expectError:   true,
+			expectTorrent: false,
+		},
 	}
 
-	if torrent == nil {
-		t.Fatal("Expected torrent, got nil")
-	}
-	if torrent.Hash != "123" {
-		t.Errorf("Expected hash 123, got %s", torrent.Hash)
-	}
-	if torrent.Progress != 0.5 {
-		t.Errorf("Expected progress 0.5, got %f", torrent.Progress)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if strings.Contains(r.URL.Path, "/api/v2/torrents/info") {
+					tt.handler(w, r)
+					return
+				}
+				w.WriteHeader(404)
+			}))
+			defer ts.Close()
+
+			// Override global host
+			oldHost := qbitHost
+			qbitHost = ts.URL
+			defer func() { qbitHost = oldHost }()
+
+			client := ts.Client()
+			torrent, err := getTorrentInfo(client, "123")
+
+			if tt.expectError && err == nil {
+				t.Error("Expected error, got nil")
+			}
+			if !tt.expectError && err != nil {
+				t.Errorf("Unexpected error: %v", err)
+			}
+
+			if tt.expectTorrent && torrent == nil {
+				t.Error("Expected torrent, got nil")
+			}
+			if !tt.expectTorrent && torrent != nil {
+				t.Errorf("Expected nil torrent, got %v", torrent)
+			}
+
+			if tt.expectTorrent && torrent != nil && torrent.Hash != tt.expectedHash {
+				t.Errorf("Expected hash %s, got %s", tt.expectedHash, torrent.Hash)
+			}
+		})
 	}
 }
 
@@ -86,12 +142,24 @@ func TestSendNtfy(t *testing.T) {
 		if r.Method != "POST" {
 			t.Errorf("Expected POST request, got %s", r.Method)
 		}
-		if r.Header.Get("Title") != "Test Title" {
-			t.Errorf("Expected Title 'Test Title', got '%s'", r.Header.Get("Title"))
+		if got := r.Header.Get("Title"); got != "Test Title" {
+			t.Errorf("Expected Title 'Test Title', got '%s'", got)
 		}
-		if r.Header.Get("Priority") != "3" {
-			t.Errorf("Expected Priority '3', got '%s'", r.Header.Get("Priority"))
+		if got := r.Header.Get("Priority"); got != "3" {
+			t.Errorf("Expected Priority '3', got '%s'", got)
 		}
+		if got := r.Header.Get("Tags"); got != "tag" {
+			t.Errorf("Expected Tags 'tag', got '%s'", got)
+		}
+
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("Failed to read request body: %v", err)
+		}
+		if string(body) != "Test Message" {
+			t.Errorf("Expected body 'Test Message', got '%s'", string(body))
+		}
+
 		w.WriteHeader(200)
 	}))
 	defer ts.Close()
@@ -99,12 +167,13 @@ func TestSendNtfy(t *testing.T) {
 	// Override global config
 	oldServer := ntfyServer
 	oldTopic := ntfyTopic
-	ntfyServer = ts.URL
-	ntfyTopic = "test_topic"
-	defer func() {
+	t.Cleanup(func() {
 		ntfyServer = oldServer
 		ntfyTopic = oldTopic
-	}()
+	})
+
+	ntfyServer = ts.URL
+	ntfyTopic = "test_topic"
 
 	sendNtfy("Test Title", "Test Message", "tag", "id", "3")
 }

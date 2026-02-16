@@ -301,6 +301,9 @@ func drawProgressBar(pct int) string {
 	if filled > width {
 		filled = width
 	}
+	if filled < 0 {
+		filled = 0
+	}
 	empty := width - filled
 	return "[" + strings.Repeat("█", filled) + strings.Repeat("░", empty) + "]"
 }
