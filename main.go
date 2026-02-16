@@ -39,6 +39,9 @@ var (
 var (
 	activeMonitors = make(map[string]bool)
 	mutex          sync.Mutex
+	appCtx         context.Context
+	appCancel      context.CancelFunc
+	appWg          sync.WaitGroup
 )
 
 // Torrent struct for JSON parsing
@@ -76,7 +79,19 @@ func main() {
 	log.Printf("Sidecar listening on :%s", port)
 	log.Printf("Config: Host=%s Auth=%v Topic=%s/%s NtfyAuth=%v", qbitHost, qbitUser != "", ntfyServer, ntfyTopic, ntfyUser != "")
 
+	// 1. Config Check
+	// ... (vars init) ...
+	qbitHost = getEnv("QBIT_HOST", "http://localhost:8080")
+	// ...
+
+	// Global Context for shutdown signaling
+	appCtx, appCancel = context.WithCancel(context.Background())
+	defer appCancel()
+
+	// ...
+
 	// 3. Run Startup Scan (Background)
+	appWg.Add(1)
 	go startupScan()
 
 	server := &http.Server{
@@ -101,47 +116,78 @@ func main() {
 	<-stop
 	log.Println("Shutting down sidecar...")
 
-	// Create a context with timeout for shutdown
+	// Signal workers to stop
+	appCancel()
+
+	// Shutdown HTTP server
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	if err := server.Shutdown(ctx); err != nil {
-		log.Fatalf("Server forced to shutdown: %v", err)
+		log.Printf("Server forced to shutdown: %v", err)
 	}
+
+	// Wait for workers
+	log.Println("Waiting for background workers...")
+	appWg.Wait()
 
 	log.Println("Sidecar exited gracefully")
 }
 
 func startupScan() {
+	defer appWg.Done()
+
 	// Retry loop to wait for qBittorrent to be ready
 	jar, _ := cookiejar.New(nil)
 	client := &http.Client{Jar: jar, Timeout: 10 * time.Second}
 
 	for {
+		// Check for shutdown
+		select {
+		case <-appCtx.Done():
+			return
+		default:
+		}
+
 		log.Println("Startup: Attempting to connect to qBittorrent...")
+
+		// Helper for interruptible sleep
+		sleepOrExit := func(d time.Duration) bool {
+			select {
+			case <-time.After(d):
+				return false
+			case <-appCtx.Done():
+				return true
+			}
+		}
 
 		// 1. Auth (if required)
 		if qbitUser != "" && qbitPass != "" {
 			if err := login(client); err != nil {
 				log.Printf("Startup: Auth failed (%v). Retrying in 10s...", err)
-				time.Sleep(10 * time.Second)
+				if sleepOrExit(10 * time.Second) {
+					return
+				}
 				continue
 			}
 		}
 
 		// 2. Fetch Active Torrents
-		// "downloading" filter covers: downloading, metaDL, stalledDL, checkingDL, forcedDL
 		resp, err := client.Get(qbitHost + "/api/v2/torrents/info?filter=downloading")
 		if err != nil {
 			log.Printf("Startup: Connection failed (%v). Retrying in 10s...", err)
-			time.Sleep(10 * time.Second)
+			if sleepOrExit(10 * time.Second) {
+				return
+			}
 			continue
 		}
 
 		if resp.StatusCode != 200 {
 			log.Printf("Startup: API returned %d. Retrying in 10s...", resp.StatusCode)
 			_ = resp.Body.Close()
-			time.Sleep(10 * time.Second)
+			if sleepOrExit(10 * time.Second) {
+				return
+			}
 			continue
 		}
 
@@ -149,7 +195,9 @@ func startupScan() {
 		if err := json.NewDecoder(resp.Body).Decode(&torrents); err != nil {
 			log.Printf("Startup: JSON decode error (%v). Retrying in 10s...", err)
 			_ = resp.Body.Close()
-			time.Sleep(10 * time.Second)
+			if sleepOrExit(10 * time.Second) {
+				return
+			}
 			continue
 		}
 		_ = resp.Body.Close()
@@ -162,13 +210,13 @@ func startupScan() {
 				activeMonitors[t.Hash] = true
 				mutex.Unlock()
 				log.Printf("Startup: Resuming monitor for %s (%s)", t.Name, t.Hash)
+				appWg.Add(1)
 				go trackTorrent(t.Hash)
 			} else {
 				mutex.Unlock()
 			}
 		}
 
-		// Success! Exit the loop (or we could keep this running periodically as a failsafe)
 		log.Println("Startup: Sync complete.")
 		return
 	}
@@ -195,6 +243,7 @@ func handleTrackRequest(w http.ResponseWriter, r *http.Request) {
 	activeMonitors[hash] = true
 	mutex.Unlock()
 
+	appWg.Add(1)
 	go trackTorrent(hash)
 
 	w.WriteHeader(200)
@@ -202,6 +251,7 @@ func handleTrackRequest(w http.ResponseWriter, r *http.Request) {
 }
 
 func trackTorrent(hash string) {
+	defer appWg.Done()
 	defer func() {
 		mutex.Lock()
 		delete(activeMonitors, hash)
@@ -234,7 +284,15 @@ func trackTorrent(hash string) {
 
 	lastPct := -1
 
-	for range ticker.C {
+	for {
+		select {
+		case <-appCtx.Done():
+			log.Printf("[%s] Shutting down monitor...", hash)
+			return
+		case <-ticker.C:
+			// Continue with logic below
+		}
+
 		t, err := getTorrentInfo(client, hash)
 		if err != nil {
 			log.Printf("[%s] Error: %v", hash, err)
