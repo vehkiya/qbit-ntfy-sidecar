@@ -71,7 +71,11 @@ func main() {
 
 	notifyComplete = getEnvBool("NOTIFY_COMPLETE", true)
 	progressFormat = getEnv("PROGRESS_FORMAT", "bar") // "bar" or "percent"
-	pollInt = time.Duration(getEnvInt("POLL_INTERVAL", 5)) * time.Second
+	pollIntVal := getEnvInt("POLL_INTERVAL", 5)
+	if pollIntVal <= 0 {
+		log.Fatalf("Invalid POLL_INTERVAL: %d. Must be > 0", pollIntVal)
+	}
+	pollInt = time.Duration(pollIntVal) * time.Second
 
 	// 2. Start Trigger Server
 	http.HandleFunc("/track", handleTrackRequest)
@@ -453,6 +457,7 @@ func getEnvInt(k string, fallback int) int {
 	}
 	i, err := strconv.Atoi(v)
 	if err != nil {
+		log.Printf("Warning: Invalid value for %s: %q. Using fallback: %d", k, v, fallback)
 		return fallback
 	}
 	return i

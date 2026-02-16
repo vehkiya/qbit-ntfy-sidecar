@@ -43,23 +43,54 @@ Add the sidecar container to your qBittorrent Deployment.
 ```
 
 ### Option B: Docker Compose
-Add the sidecar service to your `docker-compose.yml`. It needs to share the network with qBittorrent to access the API at `localhost`.
+There are two common ways to run the sidecar with Docker Compose.
+
+**Method 1: Sidecar joins qBittorrent's network (Recommended)**
+This allows the sidecar to access qBittorrent via `localhost`, which simplifies authentication (if "Bypass authentication for clients on localhost" is enabled in qBit).
 
 ```yaml
 services:
   qbittorrent:
     image: lscr.io/linuxserver/qbittorrent:latest
-    network_mode: service:sidecar # or share a bridge network
-    # ...
+    container_name: qbittorrent
+    # ... your other qbit config
 
   sidecar:
     image: ghcr.io/vehkiya/qbit-ntfy-sidecar:latest
     container_name: qbit-ntfy-sidecar
+    network_mode: service:qbittorrent # Joins qbit's network
     environment:
-      - QBIT_HOST=http://qbittorrent:8080 # Use container name if not sharing network stack
+      # QBIT_HOST defaults to http://localhost:8080, which is correct here
       - NTFY_TOPIC=my_downloads
       - NTFY_SERVER=https://ntfy.sh
     restart: unless-stopped
+```
+
+**Method 2: Using a shared bridge network**
+If you prefer keeping containers on separate IPs but on the same network:
+
+```yaml
+services:
+  qbittorrent:
+    image: lscr.io/linuxserver/qbittorrent:latest
+    container_name: qbittorrent
+    networks:
+      - qbit-net
+    # ... your other qbit config
+
+  sidecar:
+    image: ghcr.io/vehkiya/qbit-ntfy-sidecar:latest
+    container_name: qbit-ntfy-sidecar
+    networks:
+      - qbit-net
+    environment:
+      - QBIT_HOST=http://qbittorrent:8080 # Use service name for host
+      - NTFY_TOPIC=my_downloads
+      - NTFY_SERVER=https://ntfy.sh
+    restart: unless-stopped
+
+networks:
+  qbit-net:
 ```
 
 ### Option C: Standalone Docker
