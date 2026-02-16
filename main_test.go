@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -142,14 +143,43 @@ func TestSendNtfy(t *testing.T) {
 			t.Errorf("Expected POST request, got %s", r.Method)
 		}
 
+		// Common assertions
+		if got := r.Header.Get("Priority"); got != "3" {
+			t.Errorf("Expected Priority '3', got '%s'", got)
+		}
+		if got := r.Header.Get("Tags"); got != "tag" {
+			t.Errorf("Expected Tags 'tag', got '%s'", got)
+		}
+
+		// Check body
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("Failed to read request body: %v", err)
+		}
+
 		// Check for specific header if provided (testing auth)
 		if strings.Contains(r.URL.Path, "auth_topic") {
+			// Auth Case
 			user, pass, ok := r.BasicAuth()
 			if !ok {
 				t.Error("Expected Basic Auth header, got none")
 			}
 			if user != "testuser" || pass != "testpass" {
 				t.Errorf("Expected user/pass 'testuser'/'testpass', got '%s'/'%s'", user, pass)
+			}
+			if got := r.Header.Get("Title"); got != "Auth Title" {
+				t.Errorf("Expected Title 'Auth Title', got '%s'", got)
+			}
+			if string(body) != "Auth Message" {
+				t.Errorf("Expected body 'Auth Message', got '%s'", string(body))
+			}
+		} else {
+			// Standard Case
+			if got := r.Header.Get("Title"); got != "Test Title" {
+				t.Errorf("Expected Title 'Test Title', got '%s'", got)
+			}
+			if string(body) != "Test Message" {
+				t.Errorf("Expected body 'Test Message', got '%s'", string(body))
 			}
 		}
 
