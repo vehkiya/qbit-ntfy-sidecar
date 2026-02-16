@@ -33,12 +33,22 @@ spec:
             # localhost works because they share the Pod network
             - name: QBIT_HOST
               value: "http://localhost:8080"
-            - name: QBIT_USER
-              value: "admin"
-            - name: QBIT_PASS
-              valueFrom:
-                secretKeyRef:
-                  name: qbittorrent-secrets
-                  key: password
+            # Auth is optional if localhost bypass is enabled in qBittorrent
+            # - name: QBIT_USER
+            #   value: "admin"
+            # - name: QBIT_PASS
+            #   valueFrom:
+            #     secretKeyRef:
+            #       name: qbittorrent-secrets
+            #       key: password
+
+            - name: NTFY_SERVER
+              value: "https://ntfy.example.com"
             - name: NTFY_TOPIC
-              value: "https://ntfy.example.com/downloads"
+              value: "downloads"
+
+            # Optional Configuration
+            - name: PROGRESS_FORMAT
+              value: "bar" # or "percent"
+            - name: NTFY_PRIORITY_PROGRESS
+              value: "2"
