@@ -249,7 +249,7 @@ func sendNtfy(title, msg, tag, id, priority string) {
 	req.Header.Set("Title", title)
 	req.Header.Set("Tags", tag)
 	req.Header.Set("Priority", priority)
-	req.Header.Set("X-Notification-ID", id) // Updates in-place
+	req.Header.Set("X-Sequence-ID", id)
 
 	if ntfyUser != "" && ntfyPass != "" {
 		req.SetBasicAuth(ntfyUser, ntfyPass)
