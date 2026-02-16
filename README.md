@@ -159,4 +159,4 @@ docker build -t qbit-ntfy-sidecar .
 
 ## Examples
 
-<img src="docs/img/IMG_20260216_202218_671.jpg" width="200" /> <img src="docs/img/IMG_20260216_202218_692.jpg" width="200" />
+<img src="docs/img/IMG_20260216_202218_671.jpg" alt="Example of a download progress notification" width="200" /> <img src="docs/img/IMG_20260216_202218_692.jpg" alt="Example of a download completion notification" width="200" />
