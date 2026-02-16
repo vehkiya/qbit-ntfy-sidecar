@@ -156,3 +156,7 @@ go build -o sidecar main.go
 ```bash
 docker build -t qbit-ntfy-sidecar .
 ```
+
+## Examples
+
+<img src="docs/img/IMG_20260216_202218_671.jpg" width="200" /> <img src="docs/img/IMG_20260216_202218_692.jpg" width="200" />
