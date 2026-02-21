@@ -12,5 +12,15 @@
     "dependencies"
   ],
   "automergeType": "pr",
-  "prHeader": "## 🤖 Renovate: Dependency Maintenance"
+  "prHeader": "## 🤖 Renovate: Dependency Maintenance",
+  "packageRules": [
+    {
+      "matchPackageNames": [
+        "go",
+        "golang",
+        "docker.io/library/golang"
+      ],
+      "groupName": "Go"
+    }
+  ]
 }
