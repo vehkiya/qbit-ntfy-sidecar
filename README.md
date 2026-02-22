@@ -31,10 +31,14 @@ Add the sidecar container to your qBittorrent Deployment.
               cpu: "100m"
               memory: "128Mi"
           env:
+            - name: QBIT_HOST
+              value: "http://localhost:8080"
             - name: NTFY_TOPIC
               value: "my_downloads"
             - name: NTFY_SERVER
               value: "https://ntfy.sh"
+            - name: PROGRESS_FORMAT
+              value: "bar" # or "percent"
             # Optional: If you need Ntfy Auth
             # - name: NTFY_USER
             #   valueFrom: { secretKeyRef: { name: ntfy-secrets, key: username } }
@@ -60,9 +64,10 @@ services:
     container_name: qbit-ntfy-sidecar
     network_mode: service:qbittorrent # Joins qbit's network
     environment:
-      # QBIT_HOST defaults to http://localhost:8080, which is correct here
+      - QBIT_HOST=http://localhost:8080 # default works since it shares qbit's network
       - NTFY_TOPIC=my_downloads
       - NTFY_SERVER=https://ntfy.sh
+      - PROGRESS_FORMAT=bar # or percent
     restart: unless-stopped
 ```
 
@@ -87,6 +92,7 @@ services:
       - QBIT_HOST=http://qbittorrent:8080 # Use service name for host
       - NTFY_TOPIC=my_downloads
       - NTFY_SERVER=https://ntfy.sh
+      - PROGRESS_FORMAT=bar # or percent
     restart: unless-stopped
 
 networks:
@@ -99,7 +105,9 @@ Make sure the sidecar can reach the qBittorrent container (e.g., share a network
 docker run -d \
   --name qbit-ntfy-sidecar \
   --network=container:qbittorrent \
+  -e QBIT_HOST=http://localhost:8080 \
   -e NTFY_TOPIC=my_downloads \
+  -e PROGRESS_FORMAT=bar \
   ghcr.io/vehkiya/qbit-ntfy-sidecar:latest
 ```
 

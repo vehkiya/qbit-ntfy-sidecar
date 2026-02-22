@@ -1,30 +1,28 @@
-# Gemini CLI Project Mandates: Go-Docker CLI Wrapper
+# Gemini Project Mandates: Go-Docker Sidecar
 
-This project follows a specific architectural pattern for wrapping CLI tools in Go-based containers. Adhere strictly to these mandates to maintain design consistency and security.
+This project follows a specific architectural pattern for building lightweight, rootless Go-based sidecar containers. Adhere strictly to these mandates to maintain design consistency and security.
 
 ## 1. Architectural Mandates
 
 ### Go Entrypoint (`main.go`)
 - **Single Process Management**: The Go entrypoint must be the main process (`PID 1`).
-- **Proxy Layer**: Use `httputil.NewSingleHostReverseProxy` for all requests to the wrapped CLI tool.
-- **Custom Handlers**: Add `/healthz` for readiness/liveness probes and other operational endpoints (like `/sync`) as needed.
-- **Child Processes**: Use `exec.Command` with the `mockExecCommand` pattern for any external CLI interaction to ensure testability.
-- **Environment Variables**: Use `os.LookupEnv` or a similar pattern to handle environment-driven configuration with fallback defaults.
+- **Event-Driven & Polling**: The sidecar should expose HTTP endpoints (e.g., `/track`) to be triggered by external events, and use goroutines with tickers for background synchronization or polling.
+- **Graceful Shutdown**: Use `context.Context`, `sync.WaitGroup`, and signal intercepts to ensure all background workers and the HTTP server shut down gracefully upon receiving termination signals.
+- **Environment Variables**: Use custom helper functions (like `getEnv`, `getEnvInt`, `getEnvBool`) to handle environment-driven configuration with fallback defaults.
 
 ### Containerization (`Dockerfile`)
 - **Multi-Stage Builds**:
-  - Always use a `downloader` stage for external CLI binaries.
-  - Always use a `builder` stage for the Go entrypoint.
-  - Always use a `final` stage based on `gcr.io/distroless/cc-debian12` or similar minimal, shell-less images.
-- **Rootless Execution**: The final image **MUST** run as `USER nonroot:nonroot`.
+  - Always use a `builder` stage for compiling the Go entrypoint.
+  - Always use a `final` stage based on `gcr.io/distroless/cc-debian12`, `scratch`, or similar minimal, shell-less images.
+- **Rootless Execution**: The final image **MUST** run as a non-root user (e.g., `USER nonroot:nonroot`).
 - **Static Binaries**: Compile the Go entrypoint with `CGO_ENABLED=0` to ensure compatibility with minimal base images.
 
 ## 2. Engineering Standards
 
 ### Testing & Validation
 - **Empirical Reproduction**: Before fixing a bug, reproduce it with a test case in `main_test.go`.
-- **Mocking**: Use the `TestHelperProcess` pattern to mock CLI output and exit codes.
-- **No Side Effects**: Unit tests must not require the actual wrapped CLI binary or network access.
+- **Mocking**: Mock external APIs (like qBittorrent or Ntfy server) when testing to avoid requiring real network dependencies.
+- **No Side Effects**: Unit tests must not leak goroutines or rely on external network access.
 - **Linting**: All changes must pass `golangci-lint` as configured in the CI pipeline.
 
 ### CI/CD Consistency
@@ -36,13 +34,14 @@ This project follows a specific architectural pattern for wrapping CLI tools in 
   - Dynamically calculate semantic versions primarily from git commits since the last tag.
   - Generate a changelog exactly 1-to-1 with merged commits (1 merged commit = 1 changelog line).
   - Use the generated changelog and calculated version to automatically publish a GitHub Release.
+
 ## 3. Style and Conventions
 - **Go Version**: Keep the Go version in `go.mod` and `Dockerfile` synchronized.
 - **Explicit Imports**: Group standard library imports separately from third-party ones.
-- **Error Handling**: Wrap errors with context when bubble-up is necessary (e.g., `fmt.Errorf("context: %w", err)`).
-- **Minimalism**: Avoid adding libraries for functionality that can be achieved with the Go standard library (e.g., simple HTTP proxying, periodic tickers).
+- **Error Handling**: Log detailed errors with context, rather than failing silently.
+- **Minimalism**: Avoid adding libraries for functionality that can be achieved with the Go standard library (e.g., standard `net/http` client/server, simple timers and custom JSON decoding).
 
 ## 4. Security
 - **No Shell**: Do not include `sh`, `bash`, or other shells in the final image.
-- **Credentials**: Never log sensitive environment variables (e.g., `BW_PASSWORD`, `BW_CLIENTSECRET`).
+- **Credentials**: Never log sensitive environment variables or credentials (e.g., `QBIT_PASS`, `NTFY_PASS`).
 - **Static Analysis**: Maintain `golangci-lint` and `Trivy` as blocking gates in CI.
